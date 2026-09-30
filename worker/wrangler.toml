@@ -1,0 +1,11 @@
+name = "saudi-news-cron"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# Set to your deployed URL, e.g. https://saudi-news-monitor.vercel.app
+APP_URL = "https://YOUR-APP.vercel.app"
+# CRON_SECRET is a secret:  npx wrangler secret put CRON_SECRET

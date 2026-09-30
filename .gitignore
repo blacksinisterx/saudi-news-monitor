@@ -1,0 +1,13 @@
+node_modules
+.next
+.env.local
+.pglite
+*.tsbuildinfo
+next-env.d.ts
+worker/.dev.vars
+dev.log
+.pglite.log
+peek.out
+
+.env.*
+!.env.example

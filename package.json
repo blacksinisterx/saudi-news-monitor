@@ -1,0 +1,35 @@
+{
+  "name": "saudi-news-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:local": "tsx scripts/local-db.mts",
+    "db:setup": "tsx --env-file=.env.local scripts/db-setup.mts",
+    "e2e": "tsx --env-file=.env.local scripts/e2e.mts",
+    "cron": "tsx --env-file=.env.local scripts/cron-loop.mts",
+    "vapid": "web-push generate-vapid-keys",
+    "test": "tsx --test lib/pipeline.test.ts lib/fetchers.test.ts lib/ai.test.ts"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "next": "^15.5.26",
+    "postgres": "^3.4.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "web-push": "^3.6.7",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/web-push": "^3.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  }
+}
