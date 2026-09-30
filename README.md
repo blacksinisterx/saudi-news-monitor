@@ -15,7 +15,7 @@ Next.js on Vercel Hobby ── runs 2 ingest passes ~30 s apart per tick
    4. dedupe: unique URL; cluster into events (title similarity + event-type/entity agreement + 48 h window)
    5. importance (rules; optional AI may move it ±1 level) · category · location
    6. verification (deterministic — the AI never decides it): CONFIRMED / REPORTED / CLAIMED / UNCONFIRMED / CONFLICTING
-   7. summary: AI chain Gemini → Grok (important events only); if all fail or no keys → attributed rule-based extraction. The provider used is stored per event, shown on the story page and /status, and logged
+   7. summary: AI chain Gemini → Groq (important events only); if all fail or no keys → attributed rule-based extraction. The provider used is stored per event, shown on the story page and /status, and logged
    8. push: per-subscription prefs, one message per (event, device, stage), UPDATE when SPA later confirms
         ▼
 Supabase Postgres  ◄── dashboard / detail / status / settings (Next.js, PWA) ◄── you
@@ -122,7 +122,7 @@ Settings are per device: *Critical only / Critical + High / All*, category filte
 | Web Push (browser vendors) | notifications | free; iOS needs installed PWA, 16.4+ |
 | Google News RSS | Reuters/SPA/Al Arabiya/aggregation | unofficial feed, no SLA, may throttle or change; links redirect via Google |
 | GDELT | discovery | 1 req/5 s, ~15 min delay |
-| AI (optional) | summaries | fallback chain Gemini → Grok → rule-based (`GEMINI_API_KEY`, `GROK_API_KEY`); free quotas are rate/day-limited and change, check your key's limits |
+| AI (optional) | summaries | fallback chain Gemini → Groq → rule-based (`GEMINI_API_KEY`, `GROQ_API_KEY`); free quotas are rate/day-limited and change, check your key's limits |
 
 **What costs money if you scale:** Vercel Pro (commercial use, longer functions, ~$20/mo) · Supabase Pro (~$25/mo, no pausing, daily backups) · Cloudflare Workers paid (~$5/mo, not needed for 1/min) · paid AI beyond free quotas · licensed real-time wire access (Reuters Connect, AP, AFP APIs; the only way to get truly first-hand Reuters/Al Jazeera latency) · Redis/Upstash for a shared rate limiter if multi-user · pgvector/embedding API for semantic clustering at volume · sub-minute polling (needs an always-on worker, i.e. a paid host).
 

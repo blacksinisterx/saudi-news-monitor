@@ -8,18 +8,19 @@ export type AiSummary = {
   category?: string; location?: string; importance?: string;
 };
 
-// Fallback chain: providers are tried in AI_PROVIDER_ORDER (default gemini,grok,custom). Providers without a key are skipped.
+// Fallback chain: providers are tried in AI_PROVIDER_ORDER (default gemini,groq,grok,custom). Providers without a key are skipped.
 // If every provider fails the caller falls back to the rule-based summary. All three speak the OpenAI chat format.
 type Provider = { name: string; base: string; key: string; model: string };
 
 function providers(): Provider[] {
   const e = process.env;
   const all: Record<string, Provider | null> = {
-    gemini: e.GEMINI_API_KEY ? { name: "gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai", key: e.GEMINI_API_KEY, model: e.GEMINI_MODEL || "gemini-2.5-flash" } : null,
+    gemini: e.GEMINI_API_KEY ? { name: "gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai", key: e.GEMINI_API_KEY, model: e.GEMINI_MODEL || "gemini-flash-latest" } : null,
+    groq: e.GROQ_API_KEY ? { name: "groq", base: "https://api.groq.com/openai/v1", key: e.GROQ_API_KEY, model: e.GROQ_MODEL || "openai/gpt-oss-120b" } : null, // groq.com (gsk_… keys)
     grok: e.GROK_API_KEY ? { name: "grok", base: "https://api.x.ai/v1", key: e.GROK_API_KEY, model: e.GROK_MODEL || "grok-3-mini" } : null,
     custom: e.AI_BASE_URL && e.AI_MODEL ? { name: "custom", base: e.AI_BASE_URL.replace(/\/$/, ""), key: e.AI_API_KEY ?? "none", model: e.AI_MODEL } : null,
   };
-  return (e.AI_PROVIDER_ORDER || "gemini,grok,custom").split(",").map((n) => all[n.trim()]).filter((p): p is Provider => Boolean(p));
+  return (e.AI_PROVIDER_ORDER || "gemini,groq,grok,custom").split(",").map((n) => all[n.trim()]).filter((p): p is Provider => Boolean(p));
 }
 
 export const aiProviderNames = () => providers().map((p) => `${p.name}:${p.model}`);
