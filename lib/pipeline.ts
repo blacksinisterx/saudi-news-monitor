@@ -19,6 +19,10 @@ export function hostOf(url: string): string {
 
 const NAMES: Record<string, string> = {
   "reuters.com": "Reuters", "apnews.com": "AP", "afp.com": "AFP", "aljazeera.com": "Al Jazeera", "spa.gov.sa": "SPA",
+  "khaleejtimes.com": "Khaleej Times", "timesofisrael.com": "Times of Israel", "jpost.com": "Jerusalem Post", "saudigazette.com.sa": "Saudi Gazette",
+  "aawsat.com": "Asharq Al-Awsat", "al-monitor.com": "Al-Monitor", "middleeastmonitor.com": "Middle East Monitor", "aa.com.tr": "Anadolu",
+  "oilprice.com": "OilPrice", "arabtimesonline.com": "Arab Times", "dailysabah.com": "Daily Sabah", "haaretz.com": "Haaretz",
+  "france24.com": "France 24", "dw.com": "DW", "theguardian.com": "The Guardian", "gulfnews.com": "Gulf News", "newarab.com": "The New Arab", "zawya.com": "Zawya",
   "arabnews.com": "Arab News", "alarabiya.net": "Al Arabiya", "bbc.co.uk": "BBC", "bbc.com": "BBC",
   "middleeasteye.net": "Middle East Eye", "thenationalnews.com": "The National", "gov.sa": "Saudi ministries",
   "test-spa": "SPA (test)", "test-reuters": "Reuters (test)", "test-aljazeera": "Al Jazeera (test)", "test-other": "Other outlet (test)",
