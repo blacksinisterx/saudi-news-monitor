@@ -15,7 +15,7 @@ type Provider = { name: string; base: string; key: string; model: string };
 function providers(): Provider[] {
   const e = process.env;
   const all: Record<string, Provider | null> = {
-    gemini: e.GEMINI_API_KEY ? { name: "gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai", key: e.GEMINI_API_KEY, model: e.GEMINI_MODEL || "gemini-flash-latest" } : null,
+    gemini: e.GEMINI_API_KEY ? { name: "gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai", key: e.GEMINI_API_KEY, model: e.GEMINI_MODEL || "gemini-3.5-flash-lite" } : null,
     groq: e.GROQ_API_KEY ? { name: "groq", base: "https://api.groq.com/openai/v1", key: e.GROQ_API_KEY, model: e.GROQ_MODEL || "openai/gpt-oss-120b" } : null, // groq.com (gsk_… keys)
     grok: e.GROK_API_KEY ? { name: "grok", base: "https://api.x.ai/v1", key: e.GROK_API_KEY, model: e.GROK_MODEL || "grok-3-mini" } : null,
     custom: e.AI_BASE_URL && e.AI_MODEL ? { name: "custom", base: e.AI_BASE_URL.replace(/\/$/, ""), key: e.AI_API_KEY ?? "none", model: e.AI_MODEL } : null,
