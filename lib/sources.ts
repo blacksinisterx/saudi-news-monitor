@@ -29,9 +29,9 @@ export const SOURCES: SourceDef[] = [
   { id: "alarabiya-gn", name: "Al Arabiya English (via Google News)", type: "rss", url: gn("site:english.alarabiya.net Saudi when:1d"), role: "media", publisher: "alarabiya.net", note: "Al Arabiya's RSS URLs return 404 — Google News site-search feed" },
   { id: "bbc-me", name: "BBC Middle East", type: "rss", url: "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml", role: "media", publisher: "bbc.co.uk", note: "Direct RSS, OK" },
   { id: "mee", name: "Middle East Eye", type: "rss", url: "https://www.middleeasteye.net/rss", role: "media", publisher: "middleeasteye.net", note: "Direct RSS, OK" },
-  { id: "thenational", name: "The National", type: "rss", url: "https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml", role: "media", publisher: "thenationalnews.com", interval_sec: 120, note: "Direct RSS, OK (large, polled less often)" },
+  { id: "thenational", name: "The National", type: "rss", url: "https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml", role: "media", publisher: "thenationalnews.com", interval_sec: 180, note: "Direct RSS, OK (large, polled less often)" },
   { id: "gn-saudi-live", name: "Google News: Saudi (last hour)", type: "rss", url: gn('"Saudi Arabia" OR Riyadh OR Jeddah OR Aramco when:1h'), role: "aggregator", publisher: "google-news", note: "Cross-publisher discovery; real publisher taken from each item" },
-  { id: "gn-saudi-security", name: "Google News: Saudi security (last hour)", type: "rss", url: gn("(Saudi OR Riyadh OR Jeddah OR Houthi) (missile OR drone OR intercept OR explosion OR attack) when:1h"), role: "aggregator", publisher: "google-news", interval_sec: 30, note: "Fast lane for security incidents" },
+  { id: "gn-saudi-security", name: "Google News: Saudi security (last hour)", type: "rss", url: gn("(Saudi OR Riyadh OR Jeddah OR Houthi) (missile OR drone OR intercept OR explosion OR attack) when:1h"), role: "aggregator", publisher: "google-news", interval_sec: 120, note: "Fast lane for security incidents" },
   { id: "gdelt", name: "GDELT DOC 2.0", type: "gdelt", url: "https://api.gdeltproject.org/api/v2/doc/doc?query=(Saudi%20OR%20Riyadh%20OR%20Jeddah%20OR%20Aramco)%20sourcelang:english&mode=artlist&format=json&maxrecords=50&timespan=1h&sort=datedesc", role: "aggregator", publisher: "gdelt", interval_sec: 300, note: "Free JSON API; ~15 min data latency, limit 1 req / 5 s (429 handled)" },
 ];
 
@@ -39,7 +39,7 @@ export async function seedSources() {
   for (const s of SOURCES) {
     await sql`
       insert into sources (id, name, type, url, role, publisher, saudi_native, interval_sec, enabled)
-      values (${s.id}, ${s.name}, ${s.type}, ${s.url}, ${s.role}, ${s.publisher}, ${s.saudi_native ?? false}, ${s.interval_sec ?? 60}, ${s.enabled ?? true})
+      values (${s.id}, ${s.name}, ${s.type}, ${s.url}, ${s.role}, ${s.publisher}, ${s.saudi_native ?? false}, ${s.interval_sec ?? 120}, ${s.enabled ?? true})
       on conflict (id) do update set name = excluded.name, url = excluded.url, role = excluded.role,
         publisher = excluded.publisher, saudi_native = excluded.saudi_native, type = excluded.type`;
     // interval_sec / enabled are intentionally NOT overwritten: tune them in the DB without redeploying.

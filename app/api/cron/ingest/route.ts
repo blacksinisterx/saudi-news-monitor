@@ -13,7 +13,7 @@ function authorized(req: Request) {
 }
 
 async function passes() {
-  const n = Math.min(Number(process.env.INGEST_PASSES ?? 2), 3);
+  const n = Math.min(Number(process.env.INGEST_PASSES ?? 1), 3);
   const out = [];
   const start = Date.now();
   for (let i = 0; i < n; i++) {
