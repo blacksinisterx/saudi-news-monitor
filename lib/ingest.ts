@@ -9,7 +9,7 @@ import {
   saudiScore, similarity, verificationOf, publisherName, CATEGORIES, IMPORTANCE_ORDER, type Importance, type Item, type Role,
 } from "./pipeline";
 
-const MAX_NEW_PER_PASS = 150;
+const MAX_PER_PASS = 40; // keeps one pass well inside the 60 s function cap; the rest is picked up by the next pass (orphan recovery)
 const MAX_ITEM_AGE_MS = 48 * 3600_000;
 const NOTIFY_MAX_AGE_MS = 3 * 3600_000;
 
@@ -61,7 +61,7 @@ export async function runIngest() {
     }
 
     rows.sort((a, b) => (b.published_at as Date).getTime() - (a.published_at as Date).getTime());
-    const fresh = rows.slice(0, MAX_NEW_PER_PASS);
+    const fresh = rows.slice(0, MAX_PER_PASS);
     const ids: number[] = [];
     if (fresh.length) {
       const ins = await sql`insert into articles ${sql(fresh as never, "source_id", "url", "title", "snippet", "publisher", "role", "published_at", "saudi_score", "is_saudi")} on conflict (url) do nothing returning id, source_id`;
@@ -71,8 +71,8 @@ export async function runIngest() {
       for (const [sid, n] of perSource) await sql`update sources set articles_total = articles_total + ${n} where id = ${sid}`;
     }
     // crash recovery: articles stored by a pass that died before clustering them
-    const orphans = await sql`select id from articles where event_id is null and fetched_at > now() - interval '6 hours' order by published_at desc limit 100`;
-    for (const o of orphans) if (!ids.includes(Number(o.id))) ids.push(Number(o.id));
+    const orphans = await sql`select id from articles where event_id is null and fetched_at > now() - interval '24 hours' order by published_at desc limit ${MAX_PER_PASS}`;
+    for (const o of orphans) if (ids.length < MAX_PER_PASS && !ids.includes(Number(o.id))) ids.push(Number(o.id));
     stats.newArticles = ids.length;
     if (ids.length) {
       const r = await processArticles(ids);
