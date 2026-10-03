@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import InstallApp from "./InstallApp";
+import { playAlarm } from "@/lib/alarm";
 
 type Prefs = { level: "critical" | "high" | "all"; categories: string[]; quiet: { enabled: boolean; start: string; end: string; tz: string; allowCritical: boolean } };
 const CATS = ["security", "politics", "economy", "energy", "regional", "general"];
@@ -83,6 +85,7 @@ export default function PushSettings({ vapidKey }: { vapidKey: string }) {
 
   return (
     <div>
+      <InstallApp />
       {!env.supported && <div className="notice bad">This browser does not support web push.{env.iosBrowser ? "" : " Try Chrome, Edge or Firefox."}</div>}
       {env.iosBrowser && <div className="notice">iPhone/iPad: push only works after you install the app. Tap Share → <b>Add to Home Screen</b>, open it from the home screen, then come back here.</div>}
       {env.permission === "denied" && env.supported && <div className="notice bad">Notifications are blocked for this site. Re-enable them in your browser or phone settings.</div>}
@@ -116,6 +119,7 @@ export default function PushSettings({ vapidKey }: { vapidKey: string }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="primary" disabled={busy} onClick={save}>Save</button>
             <button disabled={busy} onClick={test}>Send test notification</button>
+            <button disabled={busy} onClick={() => playAlarm(true)}>Test alarm sound</button>
             <button disabled={busy} onClick={disable}>Disable on this device</button>
           </div>
         </>

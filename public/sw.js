@@ -31,8 +31,13 @@ self.addEventListener("push", (e) => {
     badge: "/icons/96",
     tag: d.tag || "snm",
     renotify: true,
-    requireInteraction: Boolean(d.critical),
+    requireInteraction: Boolean(d.critical), // critical alerts stay on screen until dismissed
+    silent: false,
+    vibrate: d.critical ? [300, 120, 300, 120, 300, 120, 600] : [200, 100, 200],
     data: { url: d.url || "/" },
+  }).then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true })).then((wins) => {
+    // App is open: let the page play an alarm beep too.
+    for (const w of wins) w.postMessage({ type: "alert", critical: Boolean(d.critical) });
   }));
 });
 
