@@ -88,12 +88,12 @@ export function importanceOf(text: string, saudiInText = true): Importance {
 export function maxImportance(a: Importance, b: Importance): Importance {
   return IMPORTANCE_ORDER.indexOf(a) >= IMPORTANCE_ORDER.indexOf(b) ? a : b;
 }
-/** Clamp an AI-suggested importance to +/-1 level of the rule-based one. */
+/** The AI may raise importance by at most one level but never lower it: a missed critical alert costs more than an extra one. */
 export function clampImportance(rule: Importance, ai?: string): Importance {
   const r = IMPORTANCE_ORDER.indexOf(rule);
   const a = IMPORTANCE_ORDER.indexOf(String(ai).toUpperCase() as Importance);
   if (a < 0) return rule;
-  return IMPORTANCE_ORDER[Math.max(r - 1, Math.min(r + 1, a))];
+  return IMPORTANCE_ORDER[Math.min(r + 1, Math.max(r, a))];
 }
 
 const CAT_RE: Record<Exclude<Category, "general">, RegExp> = {

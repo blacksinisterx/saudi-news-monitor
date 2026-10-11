@@ -80,7 +80,7 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean; 
       // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
       stage = initialSent ? pending[pending.length - 1] : "initial";
       covered = initialSent ? [stage] : pending;
-    } else if (opts.fresh && initialSent && e.importance === "CRITICAL" && !recentlySent && !isDone(`update:${opts.fresh.id}`)) {
+    } else if (opts.fresh && initialSent && !recentlySent && !isDone(`update:${opts.fresh.id}`)) {
       // A new CRITICAL report joined an event we already alerted on: alert again (at most once per 15 min per event).
       stage = `update:${opts.fresh.id}`;
       covered = [stage];

@@ -79,3 +79,10 @@ test("update push leads with the new report", () => {
   assert.match(p.title, /UPDATE/);
   assert.match(p.body, /^New report: Second blast reported in Riyadh \(Reuters\)/);
 });
+
+test("AI can raise importance by one level but never lower it", () => {
+  assert.equal(P.clampImportance("CRITICAL", "HIGH"), "CRITICAL");
+  assert.equal(P.clampImportance("CRITICAL", "LOW"), "CRITICAL");
+  assert.equal(P.clampImportance("NORMAL", "CRITICAL"), "HIGH");
+  assert.equal(P.clampImportance("HIGH", "garbage"), "HIGH");
+});
