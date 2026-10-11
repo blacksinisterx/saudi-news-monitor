@@ -74,11 +74,16 @@ export async function runIngest() {
     const orphans = await sql`select id from articles where event_id is null and fetched_at > now() - interval '24 hours' order by published_at desc limit ${MAX_PER_PASS}`;
     for (const o of orphans) if (ids.length < MAX_PER_PASS && !ids.includes(Number(o.id))) ids.push(Number(o.id));
     stats.newArticles = ids.length;
+    let touched: number[] = [];
     if (ids.length) {
       const r = await processArticles(ids);
+      touched = r.events;
       stats.events = r.events.length;
       stats.notified = r.notified;
     }
+    // Flush update alerts that were throttled earlier, even if nothing new arrived this pass.
+    const queued = await sql`select distinct event_id from articles where importance = 'CRITICAL' and event_id is not null and fetched_at > now() - interval '30 minutes'`;
+    for (const q of queued) if (!touched.includes(Number(q.event_id))) stats.notified += (await notifyEvent(Number(q.event_id))).sent;
     if (Math.random() < 0.02) await prune();
     return stats;
   } catch (e) {
@@ -118,7 +123,6 @@ export async function processArticles(articleIds: number[]) {
 
   const touched = new Set<number>();
   const created = new Set<number>();
-  const freshCritical = new Map<number, { id: number; title: string; source: string }>(); // new CRITICAL reports added to already-known events
   for (const a of arts) {
     const publishedAt = new Date(a.published_at);
     const own = importanceOf(`${a.title}. ${a.snippet}`, isSaudi(saudiScore(a.title, a.snippet, false)));
@@ -134,13 +138,13 @@ export async function processArticles(articleIds: number[]) {
       eventId = Number(e.id);
       pool.set(eventId, { test: a.is_test, titles: [], first: publishedAt, last: publishedAt, importance: own });
       created.add(eventId);
-    } else if (own === "CRITICAL") freshCritical.set(eventId, { id: a.id, title: a.title, source: publisherName(a.publisher) });
+    }
     const pe = pool.get(eventId)!;
     pe.titles.push(a.title);
     if (publishedAt > pe.last) pe.last = publishedAt;
     pe.importance = maxImportance(pe.importance, own);
     await sql`insert into event_sources (event_id, article_id, source_id) values (${eventId}, ${a.id}, ${a.source_id}) on conflict do nothing`;
-    await sql`update articles set event_id = ${eventId} where id = ${a.id}`;
+    await sql`update articles set event_id = ${eventId}, importance = ${own} where id = ${a.id}`;
     touched.add(eventId);
   }
 
@@ -150,7 +154,7 @@ export async function processArticles(articleIds: number[]) {
   for (const id of touched) {
     try {
       const r = await refreshEvent(id, created.has(id), () => aiCalls < maxAi && (aiCalls++, true));
-      if (r.notify) notified += (await notifyEvent(id, { fresh: freshCritical.get(id) })).sent;
+      if (r.notify) notified += (await notifyEvent(id)).sent;
     } catch (e) {
       await log("error", "event", `event ${id} failed: ${(e as Error).message}`, { id });
     }

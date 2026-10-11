@@ -61,15 +61,17 @@ export const isSaudi = (score: number) => score >= 3;
 
 /* ---------------- importance / category / location ---------------- */
 const CRIT =
-  /\b(missiles?|ballistic|drone (attack|strike)s?|drones? (intercepted|shot down)|intercept(ed|ion|ions|s)?|air defen[cs]es?|shot down|explosions?|blasts?|air ?strikes?|terror(ist)? attack|suicide (bomb|attack)|hostages?|state of emergency|emergency (alert|declared|announcement)|airspace (closed|closure|shut)|airports? (closed|shut|suspend\w*|halt\w*)|flights (suspended|halted|grounded)|evacuat\w+)\b/i;
+  /\b(missiles?|ballistic|drone (attack|strike)s?|drones? (intercepted|shot down)|intercept(ed|ion|ions|s)?|air defen[cs]es?|shot down|explosions?|blasts?|air ?strikes?|terror(ist)? attack|suicide (bomb|attack)|hostages?|state of emergency|emergency (alert|declared|announcement)|airspace (closed|closure|shut)|airports? (closed|shut|suspend\w*|halt\w*)|flights? (suspended|halted|grounded|diverted|cancel\w+)|evacuat\w+)\b/i;
 const CRIT_INFRA =
   /(fire|attack|strike|hit|blaze|explosion).{0,40}(refiner|aramco|oil facilit|pipeline|abqaiq|ras tanura|desalination|power plant)|(refiner|aramco|oil facilit|pipeline|abqaiq|ras tanura|desalination|power plant).{0,40}(fire|attack|struck|hit|blaze|explosion)/i;
+const CRIT_TARGET =
+  /\b(attack\w*|struck|strikes?|hit|hits|targeted|bomb\w*|shell(ed|ing)|raid\w*)\b.{0,60}\b(airports?|terminals?|air ?bases?|embass(y|ies)|seaports?|desalination|power (plant|station)s?|stadium|mosque|hospital)\b|\b(airports?|terminals?|air ?bases?|embass(y|ies)|seaports?|desalination|power (plant|station)s?)\b.{0,60}\b(attack\w*|struck|targeted|bombed|hit by)\b/i;
 const DEAL = /\b(deal|contract|sale|sales|agreement|buy|buys|purchase|order|approve[sd]?|exhibition|expo|show|manufactur\w*|locali[sz]\w*|test[- ]?fire|drill|exercise)\b/i;
 const MASS_CASUALTY =
   /\b(\d{2,}|dozens|scores|hundreds)\s+(people\s+)?(killed|dead|died|injured|wounded)|death toll|mass casualt/i;
 const SOME_CASUALTY = /\b(killed|dead|died|casualt\w+|wounded)\b/i;
 const HIGH =
-  /\b(royal decree|cabinet (approves|decides|issues)|sanctions?|summit|treaty|ceasefire|peace (deal|talks|agreement)|normali[sz]ation|opec\+?|production (cut|increase)|output (cut|hike|increase)|oil prices?|brent|credit rating|budget (deficit|surplus)|aramco (profit|earnings|dividend|results)|border (clash|closure|crossing)|(recall|expel|sever|restore|resume)\w* (diplomatic )?(ties|relations|ambassador)|terror(ist)? (attack|plot|cell)s?)\b/i;
+  /\b(security alert|advis\w* (against|no) travel|travel (advisory|warning)|royal decree|cabinet (approves|decides|issues)|sanctions?|summit|treaty|ceasefire|peace (deal|talks|agreement)|normali[sz]ation|opec\+?|production (cut|increase)|output (cut|hike|increase)|oil prices?|brent|credit rating|budget (deficit|surplus)|aramco (profit|earnings|dividend|results)|border (clash|closure|crossing)|(recall|expel|sever|restore|resume)\w* (diplomatic )?(ties|relations|ambassador)|terror(ist)? (attack|plot|cell)s?)\b/i;
 const ENERGY_SHOCK = /\b(resum\w*|halt\w*|suspend\w*|shut\w*|cut\w*|hik\w*|boost\w*)\b.{0,30}\b(oil|crude|gas|lng)\b/i;
 const LOW =
   /\b(football|soccer|league|tennis|golf|formula ?1|f1|grand prix|boxing|concert|festival|movie|film|celebrity|fashion|lifestyle|recipe|award|olympic|esports|gaming|entertainment|national day celebrat\w*|celebrations?)\b/i;
@@ -77,7 +79,7 @@ const LOW =
 /** `saudiInText`: the text itself mentions Saudi/regional context. Casualty rules need it, so a foreign
  *  disaster carried by a Saudi-native feed (e.g. SPA condolences) is not treated as a Saudi emergency. */
 export function importanceOf(text: string, saudiInText = true): Importance {
-  const crit = CRIT.test(text) || CRIT_INFRA.test(text);
+  const crit = CRIT.test(text) || CRIT_INFRA.test(text) || CRIT_TARGET.test(text);
   if (saudiInText && MASS_CASUALTY.test(text)) return "CRITICAL";
   if (crit) return DEAL.test(text) ? "HIGH" : "CRITICAL";
   if ((saudiInText && SOME_CASUALTY.test(text)) || HIGH.test(text) || ENERGY_SHOCK.test(text)) return "HIGH";

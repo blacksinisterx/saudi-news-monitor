@@ -35,9 +35,11 @@ create table if not exists articles (
   published_at timestamptz not null,
   fetched_at timestamptz not null default now(),
   saudi_score int not null default 0,
+  importance text not null default 'NORMAL', -- this article's own rule-based importance (drives update alerts)
   is_saudi boolean not null default false,
   event_id bigint
 );
+alter table articles add column if not exists importance text not null default 'NORMAL';
 create index if not exists articles_event_idx on articles(event_id);
 create index if not exists articles_pub_idx on articles(published_at desc);
 

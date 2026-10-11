@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import { sql } from "./db";
-import { buildPush, publisherNames, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
+import { buildPush, publisherName, publisherNames, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
 import { log } from "./log";
 
 let ready = false;
@@ -46,7 +46,7 @@ const MAX_AGE_MS = 3 * 3600_000; // never notify about stale items (e.g. first r
  * If nothing was sent yet the first message carries the current verification state; later transitions
  * (confirmed / conflicting) send a single UPDATE.
  */
-export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean; fresh?: { id: number; title: string; source: string } } = {}) {
+export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean } = {}) {
   if (!pushConfigured()) return { sent: 0, failed: 0, skipped: "vapid not configured" };
   const [e] = await sql`
     select e.*, (select max(a.published_at) from event_sources es join articles a on a.id = es.article_id where es.event_id = e.id) as newest,
@@ -61,6 +61,8 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean; 
 
   const subs = await sql<Sub[]>`select id, endpoint, p256dh, auth, prefs from push_subscriptions`;
   const done = await sql`select subscription_id, stage, status, attempts, created_at from notifications where event_id = ${eventId}`;
+  // newest CRITICAL article of this event: if it arrived after a device's last alert, that device gets an UPDATE (queued, never dropped)
+  const [crit] = await sql`select id, title, publisher, fetched_at from articles where event_id = ${eventId} and importance = 'CRITICAL' order by fetched_at desc limit 1`;
   const pe: PushEvent = {
     id: e.id, headline: e.headline, summary: e.summary, importance: e.importance, verification: e.verification, location: e.location,
     confirmed_facts: e.confirmed_facts, claims: e.claims, sources: publisherNames(e.source_names),
@@ -74,19 +76,19 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean; 
     const isDone = (st: Stage) => mine.some((d) => d.stage === st && (d.status !== "failed" || d.attempts >= 3 || now.getTime() - new Date(d.created_at).getTime() < 120_000));
     const initialSent = mine.some((d) => d.stage === "initial" && d.status === "sent");
     const pending = stagesNow.filter((s) => !isDone(s));
-    const recentlySent = mine.some((d) => d.status === "sent" && now.getTime() - new Date(d.created_at).getTime() < 15 * 60_000);
+    const lastSent = Math.max(0, ...mine.filter((d) => d.status === "sent").map((d) => new Date(d.created_at).getTime()));
     let stage: Stage, covered: Stage[];
     if (pending.length) {
       // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
       stage = initialSent ? pending[pending.length - 1] : "initial";
       covered = initialSent ? [stage] : pending;
-    } else if (opts.fresh && initialSent && !recentlySent && !isDone(`update:${opts.fresh.id}`)) {
-      // A new CRITICAL report joined an event we already alerted on: alert again (at most once per 15 min per event).
-      stage = `update:${opts.fresh.id}`;
+    } else if (crit && initialSent && new Date(crit.fetched_at).getTime() > lastSent && now.getTime() - lastSent >= 5 * 60_000 && !isDone(`update:${crit.id}`)) {
+      // A new CRITICAL report arrived after our last alert for this event: alert again (at most once per 5 min; if throttled it is retried on the next pass).
+      stage = `update:${crit.id}`;
       covered = [stage];
     } else continue;
 
-    const r = await send(sub, buildPush(pe, stage, initialSent, opts.fresh));
+    const r = await send(sub, buildPush(pe, stage, initialSent, crit && { title: crit.title, source: publisherName(crit.publisher) }));
     if (r.ok) {
       sent++;
       for (const st of covered) {

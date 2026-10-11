@@ -21,7 +21,20 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   const next = await post({ kind: "other", title: "Saudi air defenses intercept more missiles over Riyadh, another outlet reports", snippet: "A second wave was intercepted." });
   const r = next.results?.[0];
   console.log(`attempt ${attempt}: same event=${r?.eventId === eventId} pushes sent=${r?.notified}`);
-  if (r?.eventId === eventId && r.notified >= 1) { console.log("UPDATE PUSH FIX IS LIVE"); await sql.end(); process.exit(0); }
+  if (r?.eventId === eventId && r.notified >= 1) {
+    console.log("update push sent");
+    // Throttle + queue: a 3rd critical report right away must NOT push (5-min throttle) but must be delivered by the next ingest pass once the throttle passes.
+    const third = await post({ kind: "other", title: "Saudi air defenses intercept third wave of missiles over Riyadh, outlet reports", snippet: "A third wave was intercepted." });
+    console.log(`throttled report: pushes sent=${third.results?.[0]?.notified} (expected 0)`);
+    await sql`update notifications set created_at = now() - interval '6 minutes' where event_id = ${eventId}`;
+    const cron = await fetch(`${APP}/api/cron/ingest?sync=1`, { method: "POST", headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } });
+    console.log("ingest pass status", cron.status);
+    const [q] = await sql`select count(*)::int n from notifications where event_id = ${eventId} and stage = ${"update:" + third.results[0].articleId} and status = 'sent'`;
+    console.log(`queued update delivered by next pass to ${q.n} device(s) (expected >0)`);
+    await sql.end();
+    console.log(q.n > 0 ? "UPDATE PUSH + QUEUE FIX IS LIVE" : "queue NOT delivered");
+    process.exit(q.n > 0 ? 0 : 1);
+  }
   await new Promise((res) => setTimeout(res, 20_000)); // deploy may still be rolling out
 }
 await sql.end();

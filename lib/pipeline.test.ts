@@ -86,3 +86,15 @@ test("AI can raise importance by one level but never lower it", () => {
   assert.equal(P.clampImportance("NORMAL", "CRITICAL"), "HIGH");
   assert.equal(P.clampImportance("HIGH", "garbage"), "HIGH");
 });
+
+test("attacks on airports and similar targets are CRITICAL; routine airport news is not", () => {
+  for (const t of [
+    "Houthis attack Saudi airport again Sunday",
+    "Riyadh Airport Passenger Terminal Struck Again",
+    "Dammam Airport Targeted, Flights Diverted as Saudi-Houthi Conflict Escalates",
+    "Flight cancellations reported across the Kingdom",
+  ]) assert.equal(P.importanceOf(t), "CRITICAL", t);
+  assert.equal(P.importanceOf("Embassy issues new security alert for citizens in Riyadh"), "HIGH");
+  for (const t of ["Airport Arrival and Departure Data Published", "Saudi Arabia and Nicaragua Sign Bilateral Air Transport Services Agreement", "Saudi airport opens new terminal"])
+    assert.equal(P.importanceOf(t), "NORMAL", t);
+});
