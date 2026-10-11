@@ -46,7 +46,7 @@ const MAX_AGE_MS = 3 * 3600_000; // never notify about stale items (e.g. first r
  * If nothing was sent yet the first message carries the current verification state; later transitions
  * (confirmed / conflicting) send a single UPDATE.
  */
-export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean } = {}) {
+export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean; fresh?: { id: number; title: string; source: string } } = {}) {
   if (!pushConfigured()) return { sent: 0, failed: 0, skipped: "vapid not configured" };
   const [e] = await sql`
     select e.*, (select max(a.published_at) from event_sources es join articles a on a.id = es.article_id where es.event_id = e.id) as newest,
@@ -74,12 +74,19 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
     const isDone = (st: Stage) => mine.some((d) => d.stage === st && (d.status !== "failed" || d.attempts >= 3 || now.getTime() - new Date(d.created_at).getTime() < 120_000));
     const initialSent = mine.some((d) => d.stage === "initial" && d.status === "sent");
     const pending = stagesNow.filter((s) => !isDone(s));
-    if (!pending.length) continue;
-    // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
-    const stage: Stage = initialSent ? pending[pending.length - 1] : "initial";
-    const covered = initialSent ? [stage] : pending;
+    const recentlySent = mine.some((d) => d.status === "sent" && now.getTime() - new Date(d.created_at).getTime() < 15 * 60_000);
+    let stage: Stage, covered: Stage[];
+    if (pending.length) {
+      // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
+      stage = initialSent ? pending[pending.length - 1] : "initial";
+      covered = initialSent ? [stage] : pending;
+    } else if (opts.fresh && initialSent && e.importance === "CRITICAL" && !recentlySent && !isDone(`update:${opts.fresh.id}`)) {
+      // A new CRITICAL report joined an event we already alerted on: alert again (at most once per 15 min per event).
+      stage = `update:${opts.fresh.id}`;
+      covered = [stage];
+    } else continue;
 
-    const r = await send(sub, buildPush(pe, stage, initialSent));
+    const r = await send(sub, buildPush(pe, stage, initialSent, opts.fresh));
     if (r.ok) {
       sent++;
       for (const st of covered) {

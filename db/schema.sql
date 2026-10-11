@@ -89,13 +89,16 @@ create table if not exists notifications (
   id bigserial primary key,
   event_id bigint not null references events(id) on delete cascade,
   subscription_id bigint references push_subscriptions(id) on delete set null,
-  stage text not null check (stage in ('initial','confirmed','conflict')),
+  stage text not null,                     -- initial | confirmed | conflict | update:<articleId>
   status text not null check (status in ('sent','failed','skipped')),
   error text,
   attempts int not null default 1,
   created_at timestamptz not null default now(),
   unique (event_id, subscription_id, stage)
 );
+
+-- older databases had a CHECK on stage; updates use free-form stages
+alter table notifications drop constraint if exists notifications_stage_check;
 
 create table if not exists locks (
   name text primary key,

@@ -5,7 +5,7 @@ import { fetchSource, type Raw, type SourceRow } from "./fetchers";
 import { aiEnabled, aiSummarize } from "./ai";
 import { notifyEvent } from "./push";
 import {
-  CLUSTER_THRESHOLD, categoryOf, clampImportance, importanceOf, isSaudi, locationOf, maxImportance, ruleSummary,
+  CLUSTER_THRESHOLD, canAttach, categoryOf, clampImportance, importanceOf, isSaudi, locationOf, maxImportance, ruleSummary,
   saudiScore, similarity, verificationOf, publisherName, CATEGORIES, IMPORTANCE_ORDER, type Importance, type Item, type Role,
 } from "./pipeline";
 
@@ -105,33 +105,40 @@ export async function processArticles(articleIds: number[]) {
     select a.id, a.title, a.snippet, a.url, a.publisher, a.role, a.published_at, a.source_id, s.name as source_name, s.is_test
     from articles a join sources s on s.id = a.source_id where a.id in ${sql(articleIds)} order by a.published_at asc`;
 
-  const recent = await sql<{ id: number; is_test: boolean; title: string }[]>`
-    select e.id, e.is_test, a.title from events e join event_sources es on es.event_id = e.id join articles a on a.id = es.article_id
-    where e.last_seen_at > now() - interval '48 hours'`;
-  const pool = new Map<number, { test: boolean; titles: string[] }>();
+  const recent = await sql<{ id: number; is_test: boolean; title: string; first_seen_at: Date; last_seen_at: Date; importance: Importance }[]>`
+    select e.id, e.is_test, e.first_seen_at, e.last_seen_at, e.importance, a.title from events e join event_sources es on es.event_id = e.id join articles a on a.id = es.article_id
+    where e.last_seen_at > now() - interval '30 hours'`;
+  type Pooled = { test: boolean; titles: string[]; first: Date; last: Date; importance: Importance };
+  const pool = new Map<number, Pooled>();
   for (const r of recent) {
-    const p = pool.get(Number(r.id)) ?? { test: r.is_test, titles: [] };
+    const p = pool.get(Number(r.id)) ?? { test: r.is_test, titles: [], first: new Date(r.first_seen_at), last: new Date(r.last_seen_at), importance: r.importance };
     p.titles.push(r.title);
     pool.set(Number(r.id), p);
   }
 
   const touched = new Set<number>();
   const created = new Set<number>();
+  const freshCritical = new Map<number, { id: number; title: string; source: string }>(); // new CRITICAL reports added to already-known events
   for (const a of arts) {
+    const publishedAt = new Date(a.published_at);
+    const own = importanceOf(`${a.title}. ${a.snippet}`, isSaudi(saudiScore(a.title, a.snippet, false)));
     let best = 0, bestId = 0;
     for (const [id, p] of pool) {
       if (p.test !== a.is_test) continue;
       const s = Math.max(...p.titles.map((t) => similarity(a.title, t)));
-      if (s > best) [best, bestId] = [s, id];
+      if (s > best && canAttach(p, { publishedAt, importance: own }, s)) [best, bestId] = [s, id];
     }
     let eventId = bestId;
     if (best < CLUSTER_THRESHOLD) {
       const [e] = await sql`insert into events (headline, is_test, first_seen_at, last_seen_at) values (${a.title}, ${a.is_test}, ${a.published_at}, ${a.published_at}) returning id`;
       eventId = Number(e.id);
-      pool.set(eventId, { test: a.is_test, titles: [] });
+      pool.set(eventId, { test: a.is_test, titles: [], first: publishedAt, last: publishedAt, importance: own });
       created.add(eventId);
-    }
-    pool.get(eventId)!.titles.push(a.title);
+    } else if (own === "CRITICAL") freshCritical.set(eventId, { id: a.id, title: a.title, source: publisherName(a.publisher) });
+    const pe = pool.get(eventId)!;
+    pe.titles.push(a.title);
+    if (publishedAt > pe.last) pe.last = publishedAt;
+    pe.importance = maxImportance(pe.importance, own);
     await sql`insert into event_sources (event_id, article_id, source_id) values (${eventId}, ${a.id}, ${a.source_id}) on conflict do nothing`;
     await sql`update articles set event_id = ${eventId} where id = ${a.id}`;
     touched.add(eventId);
@@ -143,7 +150,7 @@ export async function processArticles(articleIds: number[]) {
   for (const id of touched) {
     try {
       const r = await refreshEvent(id, created.has(id), () => aiCalls < maxAi && (aiCalls++, true));
-      if (r.notify) notified += (await notifyEvent(id)).sent;
+      if (r.notify) notified += (await notifyEvent(id, { fresh: freshCritical.get(id) })).sent;
     } catch (e) {
       await log("error", "event", `event ${id} failed: ${(e as Error).message}`, { id });
     }

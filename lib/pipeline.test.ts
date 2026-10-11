@@ -62,3 +62,20 @@ test("push message matches the spec and never overstates confirmation", () => {
   assert.match(P.buildPush({ ...base, verification: "CONFLICTING", confirmed_facts: [] }, "conflict", true).body, /Reports currently conflict\./);
   assert.match(P.buildPush({ ...base, verification: "CONFIRMED", confirmed_facts: [] }, "confirmed", true).title, /UPDATE/);
 });
+
+test("an old or quiet event cannot swallow a new development", () => {
+  const h = 3600_000, t0 = new Date("2026-01-01T00:00:00Z");
+  const ev = { first: t0, last: t0, importance: "CRITICAL" as const };
+  const at = (hrs: number, importance: P.Importance = "CRITICAL") => ({ publishedAt: new Date(t0.getTime() + hrs * h), importance });
+  assert.ok(P.canAttach(ev, at(1), 0.5)); // same incident, one hour later
+  assert.ok(!P.canAttach(ev, at(7), 0.9)); // 7 h gap -> new development, new event
+  assert.ok(!P.canAttach({ ...ev, last: new Date(t0.getTime() + 25 * h) }, at(26), 0.9)); // event older than 24 h
+  assert.ok(!P.canAttach(ev, at(1, "NORMAL"), 0.45)); // routine story must not join a critical event on weak similarity
+});
+
+test("update push leads with the new report", () => {
+  const e = { id: 9, headline: "h", summary: "old summary", importance: "CRITICAL" as const, verification: "REPORTED" as const, location: "Riyadh, Saudi Arabia", confirmed_facts: [], claims: [], sources: ["Reuters"] };
+  const p = P.buildPush(e, "update:5", true, { title: "Second blast reported in Riyadh", source: "Reuters" });
+  assert.match(p.title, /UPDATE/);
+  assert.match(p.body, /^New report: Second blast reported in Riyadh \(Reuters\)/);
+});

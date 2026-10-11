@@ -170,6 +170,15 @@ export function similarity(a: string, b: string): number {
 }
 export const CLUSTER_THRESHOLD = 0.4;
 
+/** Stops one event from swallowing a whole storyline: no attaching across long gaps or to very old events. */
+export function canAttach(ev: { first: Date; last: Date; importance: Importance }, a: { publishedAt: Date; importance: Importance }, sim: number): boolean {
+  const t = a.publishedAt.getTime();
+  if (t - ev.last.getTime() > 6 * 3600_000) return false; // quiet for 6 h -> this is a new development
+  if (t - ev.first.getTime() > 24 * 3600_000) return false; // hard cap on event age
+  if (ev.importance === "CRITICAL" && (a.importance === "LOW" || a.importance === "NORMAL") && sim < 0.6) return false; // chaining guard
+  return true;
+}
+
 /* ---------------- verification (deterministic; the AI never decides this) ---------------- */
 const DENIAL = /\b(den(y|ies|ied|ial)|refut\w+|rebut\w*|dismiss(es|ed)? (reports?|claims?)|false reports?|no truth|contradict\w*|disput\w+)\b/i;
 const CLAIM = /\b(claim(s|ed)?|alleg(e|es|ed|edly)|purported\w*|took responsibility|says? it (launched|attacked|targeted)|unverified|unconfirmed)\b/i;
@@ -217,16 +226,16 @@ export function ruleSummary(items: Item[], v: Verification) {
 }
 
 /* ---------------- push message ---------------- */
-export type Stage = "initial" | "confirmed" | "conflict";
+export type Stage = "initial" | "confirmed" | "conflict" | `update:${number}`; // update:<articleId> = a new CRITICAL development in an ongoing event
 export type PushEvent = {
   id: number; headline: string; summary: string; importance: Importance; verification: Verification;
   location: string; confirmed_facts: string[]; claims: string[]; sources: string[];
 };
 
-export function buildPush(e: PushEvent, stage: Stage, initialSent: boolean) {
+export function buildPush(e: PushEvent, stage: Stage, initialSent: boolean, latest?: { title: string; source: string }) {
   const sev = e.importance === "CRITICAL" ? "🔴" : "🟠";
   const label = initialSent ? "UPDATE" : e.importance === "CRITICAL" ? "BREAKING" : "HIGH";
-  const lines = [SHORT(e.summary || e.headline, 170)];
+  const lines = [stage.startsWith("update:") && latest ? `New report: ${SHORT(latest.title, 150)} (${latest.source})` : SHORT(e.summary || e.headline, 170)];
   if (e.verification === "CONFLICTING") lines.push("Reports currently conflict.");
   else if (e.verification === "CONFIRMED") {
     lines.push(`Confirmed: ${SHORT(e.confirmed_facts[0]?.replace(/^[^:]+:\s*/, "") || "reported by a Saudi official source", 110)}`);
