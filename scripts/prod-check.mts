@@ -17,16 +17,16 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   const demo = await post({ scenario: "demo", reset: true });
   const eventId = demo.results?.[0]?.eventId;
   if (!eventId) { console.log(`attempt ${attempt}: ${JSON.stringify(demo)}`); await new Promise((res) => setTimeout(res, 20_000)); continue; }
-  await sql`update notifications set created_at = now() - interval '20 minutes' where event_id = ${eventId}`; // pretend earlier alerts were 20 min ago
+  await sql`update notifications set created_at = now() - interval '70 minutes' where event_id = ${eventId}`; // pretend earlier alerts were 70 min ago
   const next = await post({ kind: "other", title: "Saudi air defenses intercept more missiles over Riyadh, another outlet reports", snippet: "A second wave was intercepted." });
   const r = next.results?.[0];
   console.log(`attempt ${attempt}: same event=${r?.eventId === eventId} pushes sent=${r?.notified}`);
   if (r?.eventId === eventId && r.notified >= 1) {
     console.log("update push sent");
-    // Throttle + queue: a 3rd critical report right away must NOT push (5-min throttle) but must be delivered by the next ingest pass once the throttle passes.
+    // Throttle + queue: a 3rd critical report right away must NOT push (1 update/event/hour) but must be delivered by the next ingest pass once the throttle passes.
     const third = await post({ kind: "other", title: "Saudi air defenses intercept third wave of missiles over Riyadh, outlet reports", snippet: "A third wave was intercepted." });
     console.log(`throttled report: pushes sent=${third.results?.[0]?.notified} (expected 0)`);
-    await sql`update notifications set created_at = now() - interval '6 minutes' where event_id = ${eventId}`;
+    await sql`update notifications set created_at = now() - interval '65 minutes' where event_id = ${eventId}`;
     const cron = await fetch(`${APP}/api/cron/ingest?sync=1`, { method: "POST", headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } });
     console.log("ingest pass status", cron.status);
     const [q] = await sql`select count(*)::int n from notifications where event_id = ${eventId} and stage = ${"update:" + third.results[0].articleId} and status = 'sent'`;

@@ -29,6 +29,19 @@ const NAMES: Record<string, string> = {
 };
 /** Human name for a publisher host (also the independence key shown to the user). */
 export const publisherName = (host: string) => NAMES[host] ?? host;
+/** Alert only when an event is credible enough: a trusted/official source, or enough independent outlets. */
+export function alertWorthy(imp: Importance, publishers: string[], hasOfficial: boolean): boolean {
+  const n = new Set(publishers).size;
+  const trusted = hasOfficial || publishers.some((p) => p in NAMES);
+  if (imp === "CRITICAL") return n >= 2 || trusted;
+  if (imp === "HIGH") return hasOfficial || n >= 3;
+  return false;
+}
+export const ALERT_MAX_AGE_MS = 90 * 60_000; // alerts are for live news: the triggering report must be < 90 min old
+export const UPDATE_GAP_EVENT_MS = 60 * 60_000; // at most one "new report" update per event per hour
+export const UPDATE_GAP_DEVICE_MS = 20 * 60_000; // and at most one update per device every 20 min, across all events
+export const DUP_STORYLINE_SIM = 0.6; // new event this similar to one alerted in the last 2 h is the same storyline
+
 export const publisherNames = (hosts: string[] | null) => [...new Set((hosts ?? []).map(publisherName))];
 
 export function roleForHost(host: string, fallback: Role): Role {

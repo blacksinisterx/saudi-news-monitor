@@ -98,3 +98,14 @@ test("attacks on airports and similar targets are CRITICAL; routine airport news
   for (const t of ["Airport Arrival and Departure Data Published", "Saudi Arabia and Nicaragua Sign Bilateral Air Transport Services Agreement", "Saudi airport opens new terminal"])
     assert.equal(P.importanceOf(t), "NORMAL", t);
 });
+
+test("alerts need credibility; obscure single-source reports wait for corroboration", () => {
+  assert.ok(!P.alertWorthy("CRITICAL", ["apexnewsexclusive.com"], false)); // one unknown outlet
+  assert.ok(P.alertWorthy("CRITICAL", ["apexnewsexclusive.com", "tvcnews.tv"], false)); // two independent outlets
+  assert.ok(P.alertWorthy("CRITICAL", ["reuters.com"], false)); // one trusted outlet is enough
+  assert.ok(P.alertWorthy("CRITICAL", ["spa.gov.sa"], true));
+  assert.ok(!P.alertWorthy("HIGH", ["reuters.com", "bbc.co.uk"], false)); // HIGH needs 3 outlets or an official
+  assert.ok(P.alertWorthy("HIGH", ["reuters.com", "bbc.co.uk", "dw.com"], false));
+  assert.ok(P.alertWorthy("HIGH", ["spa.gov.sa"], true));
+  assert.ok(!P.alertWorthy("NORMAL", ["reuters.com"], true));
+});

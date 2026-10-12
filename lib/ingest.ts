@@ -82,7 +82,7 @@ export async function runIngest() {
       stats.notified = r.notified;
     }
     // Flush update alerts that were throttled earlier, even if nothing new arrived this pass.
-    const queued = await sql`select distinct event_id from articles where importance = 'CRITICAL' and event_id is not null and fetched_at > now() - interval '30 minutes'`;
+    const queued = await sql`select distinct event_id from articles where importance = 'CRITICAL' and event_id is not null and fetched_at > now() - interval '90 minutes'`;
     for (const q of queued) if (!touched.includes(Number(q.event_id))) stats.notified += (await notifyEvent(Number(q.event_id))).sent;
     if (Math.random() < 0.02) await prune();
     return stats;

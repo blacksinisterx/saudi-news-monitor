@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import { sql } from "./db";
-import { buildPush, publisherName, publisherNames, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
+import { ALERT_MAX_AGE_MS, DUP_STORYLINE_SIM, UPDATE_GAP_DEVICE_MS, UPDATE_GAP_EVENT_MS, alertWorthy, buildPush, publisherName, publisherNames, similarity, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
 import { log } from "./log";
 
 let ready = false;
@@ -39,7 +39,6 @@ export async function sendRaw(subId: number, payload: object) {
   return sub ? send(sub, payload) : { ok: false as const, gone: true, error: "not found" };
 }
 
-const MAX_AGE_MS = 3 * 3600_000; // never notify about stale items (e.g. first run backfill)
 
 /**
  * Notify for one event. At most one message per (event, subscription, stage).
@@ -50,10 +49,11 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
   if (!pushConfigured()) return { sent: 0, failed: 0, skipped: "vapid not configured" };
   const [e] = await sql`
     select e.*, (select max(a.published_at) from event_sources es join articles a on a.id = es.article_id where es.event_id = e.id) as newest,
-           (select array_agg(distinct a.publisher) from event_sources es join articles a on a.id = es.article_id where es.event_id = e.id) as source_names
+           (select array_agg(distinct a.publisher) from event_sources es join articles a on a.id = es.article_id where es.event_id = e.id) as source_names,
+           exists (select 1 from event_sources es join articles a on a.id = es.article_id where es.event_id = e.id and a.role = 'official') as has_official
     from events e where e.id = ${eventId}`;
   if (!e) return { sent: 0, failed: 0 };
-  if (!opts.ignoreAge && !e.is_test && Date.now() - new Date(e.newest).getTime() > MAX_AGE_MS) return { sent: 0, failed: 0, skipped: "stale" };
+  if (!opts.ignoreAge && !e.is_test && Date.now() - new Date(e.newest).getTime() > ALERT_MAX_AGE_MS) return { sent: 0, failed: 0, skipped: "stale" };
 
   const stagesNow: Stage[] = ["initial"];
   if (e.verification === "CONFIRMED") stagesNow.push("confirmed");
@@ -62,7 +62,18 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
   const subs = await sql<Sub[]>`select id, endpoint, p256dh, auth, prefs from push_subscriptions`;
   const done = await sql`select subscription_id, stage, status, attempts, created_at from notifications where event_id = ${eventId}`;
   // newest CRITICAL article of this event: if it arrived after a device's last alert, that device gets an UPDATE (queued, never dropped)
-  const [crit] = await sql`select id, title, publisher, fetched_at from articles where event_id = ${eventId} and importance = 'CRITICAL' order by fetched_at desc limit 1`;
+  const [crit] = await sql`select id, title, publisher, fetched_at, published_at from articles where event_id = ${eventId} and importance = 'CRITICAL' order by fetched_at desc limit 1`;
+  const worthy = alertWorthy(e.importance, e.source_names ?? [], e.has_official);
+  // Same storyline as an event we already alerted on in the last 2 h? Then don't open a second alert thread for it.
+  let dupStoryline = false;
+  if (!done.some((d) => d.stage === "initial" && d.status === "sent")) {
+    const recent = await sql`select distinct e2.headline from events e2 join notifications n on n.event_id = e2.id
+      where n.stage = 'initial' and n.status = 'sent' and n.created_at > now() - interval '2 hours' and e2.id <> ${eventId} and e2.is_test = ${e.is_test}`;
+    dupStoryline = recent.some((r) => similarity(e.headline, r.headline) >= DUP_STORYLINE_SIM);
+  }
+  const lastUpdateByDevice = new Map<number, number>();
+  for (const r of await sql`select subscription_id, max(created_at) at from notifications where status = 'sent' and stage like 'update:%' and created_at > now() - interval '1 hour' group by 1`)
+    lastUpdateByDevice.set(Number(r.subscription_id), new Date(r.at).getTime());
   const pe: PushEvent = {
     id: e.id, headline: e.headline, summary: e.summary, importance: e.importance, verification: e.verification, location: e.location,
     confirmed_facts: e.confirmed_facts, claims: e.claims, sources: publisherNames(e.source_names),
@@ -72,6 +83,7 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
 
   for (const sub of subs) {
     if (!wantsEvent(sub.prefs, e.importance, e.category, now)) continue;
+    if (sub.prefs.level !== "all" && !worthy) continue; // not credible enough yet: re-checked when more sources join
     const mine = done.filter((d) => d.subscription_id === sub.id);
     const isDone = (st: Stage) => mine.some((d) => d.stage === st && (d.status !== "failed" || d.attempts >= 3 || now.getTime() - new Date(d.created_at).getTime() < 120_000));
     const initialSent = mine.some((d) => d.stage === "initial" && d.status === "sent");
@@ -79,11 +91,13 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
     const lastSent = Math.max(0, ...mine.filter((d) => d.status === "sent").map((d) => new Date(d.created_at).getTime()));
     let stage: Stage, covered: Stage[];
     if (pending.length) {
+      if (!initialSent && dupStoryline) continue;
       // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
       stage = initialSent ? pending[pending.length - 1] : "initial";
       covered = initialSent ? [stage] : pending;
-    } else if (crit && initialSent && new Date(crit.fetched_at).getTime() > lastSent && now.getTime() - lastSent >= 5 * 60_000 && !isDone(`update:${crit.id}`)) {
-      // A new CRITICAL report arrived after our last alert for this event: alert again (at most once per 5 min; if throttled it is retried on the next pass).
+    } else if (crit && initialSent && new Date(crit.fetched_at).getTime() > lastSent && now.getTime() - lastSent >= UPDATE_GAP_EVENT_MS && now.getTime() - (lastUpdateByDevice.get(sub.id) ?? 0) >= UPDATE_GAP_DEVICE_MS
+      && (opts.ignoreAge || e.is_test || now.getTime() - new Date(crit.published_at).getTime() <= ALERT_MAX_AGE_MS) && !isDone(`update:${crit.id}`)) {
+      // A new, recent CRITICAL report arrived after our last alert: one update per event per hour and per device per 20 min; if throttled it is retried on the next pass.
       stage = `update:${crit.id}`;
       covered = [stage];
     } else continue;
