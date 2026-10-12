@@ -91,13 +91,13 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
     let stage: Stage, covered: Stage[];
     let alertText = e.headline as string;
     let latest: { title: string; source: string } | undefined;
-    const recent = recentAlerts.get(sub.id) ?? [];
+    const recent = recentAlerts.get(Number(sub.id)) ?? [];
     if (pending.length) {
       if (!initialSent && !isNovel(e.headline, recent)) continue; // same storyline, nothing new: stay quiet
       // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
       stage = initialSent ? pending[pending.length - 1] : "initial";
       covered = initialSent ? [stage] : pending;
-    } else if (initialSent && now.getTime() - lastSent >= UPDATE_GAP_EVENT_MS && now.getTime() - (lastUpdateByDevice.get(sub.id) ?? 0) >= UPDATE_GAP_DEVICE_MS) {
+    } else if (initialSent && now.getTime() - lastSent >= UPDATE_GAP_EVENT_MS && now.getTime() - (lastUpdateByDevice.get(Number(sub.id)) ?? 0) >= UPDATE_GAP_DEVICE_MS) {
       // Newest recent CRITICAL report that tells this device something new (new place/target/development/toll). Never repeats, never hides a new one behind noise.
       const crit = crits.find((c) => new Date(c.fetched_at).getTime() > lastSent && !isDone(`update:${c.id}`)
         && (opts.ignoreAge || e.is_test || now.getTime() - new Date(c.published_at).getTime() <= ALERT_MAX_AGE_MS) && isNovel(c.title, recent));
