@@ -13,7 +13,11 @@ const post = async (body: unknown): Promise<any> => {
   try { return JSON.parse(t); } catch { return { error: `HTTP ${r.status}: ${t.slice(0, 60)}` }; }
 };
 
-const age = (id: number) => sql`update notifications set created_at = now() - interval '70 minutes' where event_id = ${id}`;
+// Pretend everything so far happened 70 min ago: alerts AND the articles fetched before them (like real life, old articles are not 'new since the last alert').
+const age = async (id: number) => {
+  await sql`update notifications set created_at = created_at - interval '70 minutes' where event_id = ${id}`;
+  await sql`update articles set fetched_at = fetched_at - interval '70 minutes' where event_id = ${id}`;
+};
 const pushes = async (title: string, snippet: string) => (await post({ kind: "other", title, snippet })).results?.[0];
 let ok = true;
 const check = (label: string, got: number | undefined, want: "some" | "none") => {
