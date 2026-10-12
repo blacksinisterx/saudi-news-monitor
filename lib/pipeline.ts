@@ -56,7 +56,10 @@ const DEVELOPMENTS: [string, RegExp][] = [
   ["sanctions", /\bsanctions?\b/],
   ["casualties", /\b(kill\w*|dead|died|dies|casualt\w+|wounded|injur\w+|deaths?)\b/],
 ];
-const NOISE = /\b(condemn\w*|reacts?|reactions?|analysis|opinion|explained|what we know|live updates?|live blog|timeline|editorial|commentary|photos?|video|watch|why)\b|^day \d+\b/i;
+const NOISE = /\b(condemn\w*|reacts?|reactions?|analysis|opinion|explained|explainer|what we know|live updates?|live blog|timeline|editorial|commentary|photos?|video|watch|why|experts?|analysts?|ambitions|era of|media reports|how is|how will|what next)\b|^day \d+\b|\?/i;
+// Not incidents: markets, conferences, airline notices. Dropped unless the headline also reports a hard incident.
+const SOFT_NOISE = /\b(ftse|stocks?|shares|markets?|brent|crude|oil prices?|congress|conference|forum|expo|exhibition|festival|schedule|opens in|(?:airlines?|airways|air)\b.{0,40}\b(?:suspend\w*|cancel\w*|extend\w*|resum\w*|divert\w*))\b/i;
+const HARD_INCIDENT = /\b(missiles?|drones?|killed|kills?|dead|dies|died|struck|intercept\w*|explosions?|blasts?|casualt\w+|ballistic|airstrikes?)\b/i;
 
 export function facets(text: string): Set<string> {
   const t = text.toLowerCase(), out = new Set<string>();
@@ -73,6 +76,7 @@ export function facets(text: string): Set<string> {
 /** True if `candidate` adds a new place, target, major development or casualty bracket compared with what was already alerted. */
 export function isNovel(candidate: string, recent: string[]): boolean {
   if (NOISE.test(candidate)) return false; // videos, opinion, condemnations, "why..." pieces never alert
+  if (SOFT_NOISE.test(candidate) && !HARD_INCIDENT.test(candidate)) return false; // market / conference / airline notices
   const similar = recent.filter((r) => similarity(candidate, r) >= 0.25);
   if (!similar.length) return true; // a different story from anything alerted lately
   const seen = new Set(similar.flatMap((r) => [...facets(r)]));

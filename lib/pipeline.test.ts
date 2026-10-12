@@ -124,3 +124,16 @@ test("novelty: only genuinely new developments alert; repeats, videos and condem
   assert.ok(!P.isNovel("Riyadh airport attack kills 14", ["Riyadh airport attack kills 12"])); // same bracket
   assert.ok(P.isNovel("Anything about Saudi Arabia", [])); // nothing alerted yet
 });
+
+test("novelty ignores opinion, markets, conferences and airline notices", () => {
+  for (const t of [
+    "Missiles, Money & Allies: Can Saudi Arabia Stop the Houthi Assault?",
+    "Yemen expert warns Houthis remain major threat to Saudi Arabia",
+    "FTSE 100 rises as oil slips despite attacks",
+    "Brent holds near $104 as Gulf exports offset attacks",
+    "25th WPC Energy Congress Opens in Riyadh",
+    "Batik Air cancels Jeddah flight after latest Houthi attack on Riyadh airport",
+    "Philippine Airlines Extends Riyadh Flight Suspensions",
+  ]) assert.ok(!P.isNovel(t, []), t);
+  assert.ok(P.isNovel("Missile strike hits oil facility as Brent jumps", [])); // a hard incident still alerts
+});
