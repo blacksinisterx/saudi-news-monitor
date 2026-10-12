@@ -94,6 +94,7 @@ create table if not exists notifications (
   stage text not null,                     -- initial | confirmed | conflict | update:<articleId>
   status text not null check (status in ('sent','failed','skipped')),
   error text,
+  headline text,                           -- the text we alerted on (event headline or the new report), used for novelty checks
   attempts int not null default 1,
   created_at timestamptz not null default now(),
   unique (event_id, subscription_id, stage)
@@ -101,6 +102,7 @@ create table if not exists notifications (
 
 -- older databases had a CHECK on stage; updates use free-form stages
 alter table notifications drop constraint if exists notifications_stage_check;
+alter table notifications add column if not exists headline text;
 
 create table if not exists locks (
   name text primary key,

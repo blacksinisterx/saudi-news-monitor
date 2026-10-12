@@ -13,30 +13,34 @@ const post = async (body: unknown): Promise<any> => {
   try { return JSON.parse(t); } catch { return { error: `HTTP ${r.status}: ${t.slice(0, 60)}` }; }
 };
 
+const age = (id: number) => sql`update notifications set created_at = now() - interval '70 minutes' where event_id = ${id}`;
+const pushes = async (title: string, snippet: string) => (await post({ kind: "other", title, snippet })).results?.[0];
+let ok = true;
+const check = (label: string, got: number | undefined, want: "some" | "none") => {
+  const pass = want === "some" ? (got ?? 0) >= 1 : got === 0;
+  if (!pass) ok = false;
+  console.log(`${pass ? "PASS" : "FAIL"}  ${label}: pushes=${got} (expected ${want === "some" ? ">=1" : "0"})`);
+};
+
 for (let attempt = 1; attempt <= 5; attempt++) {
   const demo = await post({ scenario: "demo", reset: true });
   const eventId = demo.results?.[0]?.eventId;
   if (!eventId) { console.log(`attempt ${attempt}: ${JSON.stringify(demo)}`); await new Promise((res) => setTimeout(res, 20_000)); continue; }
-  await sql`update notifications set created_at = now() - interval '70 minutes' where event_id = ${eventId}`; // pretend earlier alerts were 70 min ago
-  const next = await post({ kind: "other", title: "Saudi air defenses intercept more missiles over Riyadh, another outlet reports", snippet: "A second wave was intercepted." });
-  const r = next.results?.[0];
-  console.log(`attempt ${attempt}: same event=${r?.eventId === eventId} pushes sent=${r?.notified}`);
-  if (r?.eventId === eventId && r.notified >= 1) {
-    console.log("update push sent");
-    // Throttle + queue: a 3rd critical report right away must NOT push (1 update/event/hour) but must be delivered by the next ingest pass once the throttle passes.
-    const third = await post({ kind: "other", title: "Saudi air defenses intercept third wave of missiles over Riyadh, outlet reports", snippet: "A third wave was intercepted." });
-    console.log(`throttled report: pushes sent=${third.results?.[0]?.notified} (expected 0)`);
-    await sql`update notifications set created_at = now() - interval '65 minutes' where event_id = ${eventId}`;
-    const cron = await fetch(`${APP}/api/cron/ingest?sync=1`, { method: "POST", headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } });
-    console.log("ingest pass status", cron.status);
-    const [q] = await sql`select count(*)::int n from notifications where event_id = ${eventId} and stage = ${"update:" + third.results[0].articleId} and status = 'sent'`;
-    console.log(`queued update delivered by next pass to ${q.n} device(s) (expected >0)`);
-    await sql.end();
-    console.log(q.n > 0 ? "UPDATE PUSH + QUEUE FIX IS LIVE" : "queue NOT delivered");
-    process.exit(q.n > 0 ? 0 : 1);
-  }
-  await new Promise((res) => setTimeout(res, 20_000)); // deploy may still be rolling out
+  await age(eventId);
+  check("new place (Riyadh) is news", (await pushes("Saudi air defenses intercept more missiles over Riyadh, another outlet reports", "A second wave."))?.notified, "some");
+  await age(eventId);
+  check("same place again is NOT news", (await pushes("Saudi air defenses intercept third wave of missiles over Riyadh", "Third wave."))?.notified, "none");
+  await age(eventId);
+  check("video / condemnation is NOT news", (await pushes("Video shows missile interception over Riyadh, Egypt condemns attack", "Video."))?.notified, "none");
+  await age(eventId);
+  check("new place + casualties (Jeddah, 12 killed) is news", (await pushes("Missile strike on Jeddah kills 12, Saudi authorities say", "Casualties reported."))?.notified, "some");
+  await age(eventId);
+  check("repeat of Jeddah report is NOT news", (await pushes("Jeddah missile strike kills 12, Saudi authorities say", "Same."))?.notified, "none");
+  await sql`delete from events where is_test`; await sql`delete from articles where source_id in (select id from sources where is_test)`;
+  await sql.end();
+  console.log(ok ? "PRECISE ALERTS LIVE" : "SOME CHECKS FAILED (deploy may still be rolling out: rerun)");
+  process.exit(ok ? 0 : 1);
 }
 await sql.end();
-console.log("update push NOT observed");
+console.log("could not run");
 process.exit(1);

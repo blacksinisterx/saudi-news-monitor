@@ -109,3 +109,18 @@ test("alerts need credibility; obscure single-source reports wait for corroborat
   assert.ok(P.alertWorthy("HIGH", ["spa.gov.sa"], true));
   assert.ok(!P.alertWorthy("NORMAL", ["reuters.com"], true));
 });
+
+test("novelty: only genuinely new developments alert; repeats, videos and condemnations do not", () => {
+  const seen = ["Riyadh Airport Attacked"];
+  assert.ok(!P.isNovel("Houthis attack Riyadh airport again", seen)); // same place, same target
+  assert.ok(!P.isNovel("Day 227 | New Houthi strike hits Riyadh airport", seen));
+  assert.ok(!P.isNovel("New video shows deadly attack on Riyadh airport", seen)); // video
+  assert.ok(!P.isNovel("Egypt condemns Riyadh airport attack", seen)); // condemnation
+  assert.ok(P.isNovel("Houthis also strike Dammam airport", seen)); // new place
+  assert.ok(P.isNovel("Riyadh airport attack kills 12", seen)); // casualties appear
+  assert.ok(P.isNovel("Saudi Arabia and Houthis agree ceasefire after airport attacks", seen)); // major development
+  assert.ok(P.isNovel("Fire at Aramco refinery in Ras Tanura", seen)); // a different story entirely
+  assert.ok(P.isNovel("Riyadh airport attack kills 60", ["Riyadh airport attack kills 12"])); // bigger toll bracket
+  assert.ok(!P.isNovel("Riyadh airport attack kills 14", ["Riyadh airport attack kills 12"])); // same bracket
+  assert.ok(P.isNovel("Anything about Saudi Arabia", [])); // nothing alerted yet
+});

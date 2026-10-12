@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import { sql } from "./db";
-import { ALERT_MAX_AGE_MS, DUP_STORYLINE_SIM, UPDATE_GAP_DEVICE_MS, UPDATE_GAP_EVENT_MS, alertWorthy, buildPush, publisherName, publisherNames, similarity, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
+import { ALERT_MAX_AGE_MS, NOVELTY_WINDOW_H, UPDATE_GAP_DEVICE_MS, UPDATE_GAP_EVENT_MS, alertWorthy, buildPush, isNovel, publisherName, publisherNames, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
 import { log } from "./log";
 
 let ready = false;
@@ -62,15 +62,14 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
   const subs = await sql<Sub[]>`select id, endpoint, p256dh, auth, prefs from push_subscriptions`;
   const done = await sql`select subscription_id, stage, status, attempts, created_at from notifications where event_id = ${eventId}`;
   // newest CRITICAL article of this event: if it arrived after a device's last alert, that device gets an UPDATE (queued, never dropped)
-  const [crit] = await sql`select id, title, publisher, fetched_at, published_at from articles where event_id = ${eventId} and importance = 'CRITICAL' order by fetched_at desc limit 1`;
+  const crits = await sql`select id, title, publisher, fetched_at, published_at from articles where event_id = ${eventId} and importance = 'CRITICAL' order by fetched_at desc limit 8`;
   const worthy = alertWorthy(e.importance, e.source_names ?? [], e.has_official);
-  // Same storyline as an event we already alerted on in the last 2 h? Then don't open a second alert thread for it.
-  let dupStoryline = false;
-  if (!done.some((d) => d.stage === "initial" && d.status === "sent")) {
-    const recent = await sql`select distinct e2.headline from events e2 join notifications n on n.event_id = e2.id
-      where n.stage = 'initial' and n.status = 'sent' and n.created_at > now() - interval '2 hours' and e2.id <> ${eventId} and e2.is_test = ${e.is_test}`;
-    dupStoryline = recent.some((r) => similarity(e.headline, r.headline) >= DUP_STORYLINE_SIM);
-  }
+  // What each device was already alerted about lately: new alerts must add something to this (see isNovel).
+  const recentAlerts = new Map<number, string[]>();
+  for (const r of await sql`select n.subscription_id sub, coalesce(n.headline, (select a.title from articles a where a.id = nullif(split_part(n.stage, ':', 2), '')::bigint), e2.headline) h
+      from notifications n join events e2 on e2.id = n.event_id
+      where n.status = 'sent' and n.created_at > now() - make_interval(hours => ${NOVELTY_WINDOW_H}) and e2.is_test = ${e.is_test}`)
+    recentAlerts.set(Number(r.sub), [...(recentAlerts.get(Number(r.sub)) ?? []), r.h]);
   const lastUpdateByDevice = new Map<number, number>();
   for (const r of await sql`select subscription_id, max(created_at) at from notifications where status = 'sent' and stage like 'update:%' and created_at > now() - interval '1 hour' group by 1`)
     lastUpdateByDevice.set(Number(r.subscription_id), new Date(r.at).getTime());
@@ -90,24 +89,31 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
     const pending = stagesNow.filter((s) => !isDone(s));
     const lastSent = Math.max(0, ...mine.filter((d) => d.status === "sent").map((d) => new Date(d.created_at).getTime()));
     let stage: Stage, covered: Stage[];
+    let alertText = e.headline as string;
+    let latest: { title: string; source: string } | undefined;
+    const recent = recentAlerts.get(sub.id) ?? [];
     if (pending.length) {
-      if (!initialSent && dupStoryline) continue;
+      if (!initialSent && !isNovel(e.headline, recent)) continue; // same storyline, nothing new: stay quiet
       // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
       stage = initialSent ? pending[pending.length - 1] : "initial";
       covered = initialSent ? [stage] : pending;
-    } else if (crit && initialSent && new Date(crit.fetched_at).getTime() > lastSent && now.getTime() - lastSent >= UPDATE_GAP_EVENT_MS && now.getTime() - (lastUpdateByDevice.get(sub.id) ?? 0) >= UPDATE_GAP_DEVICE_MS
-      && (opts.ignoreAge || e.is_test || now.getTime() - new Date(crit.published_at).getTime() <= ALERT_MAX_AGE_MS) && !isDone(`update:${crit.id}`)) {
-      // A new, recent CRITICAL report arrived after our last alert: one update per event per hour and per device per 20 min; if throttled it is retried on the next pass.
+    } else if (initialSent && now.getTime() - lastSent >= UPDATE_GAP_EVENT_MS && now.getTime() - (lastUpdateByDevice.get(sub.id) ?? 0) >= UPDATE_GAP_DEVICE_MS) {
+      // Newest recent CRITICAL report that tells this device something new (new place/target/development/toll). Never repeats, never hides a new one behind noise.
+      const crit = crits.find((c) => new Date(c.fetched_at).getTime() > lastSent && !isDone(`update:${c.id}`)
+        && (opts.ignoreAge || e.is_test || now.getTime() - new Date(c.published_at).getTime() <= ALERT_MAX_AGE_MS) && isNovel(c.title, recent));
+      if (!crit) continue;
       stage = `update:${crit.id}`;
       covered = [stage];
+      alertText = crit.title;
+      latest = { title: crit.title, source: publisherName(crit.publisher) };
     } else continue;
 
-    const r = await send(sub, buildPush(pe, stage, initialSent, crit && { title: crit.title, source: publisherName(crit.publisher) }));
+    const r = await send(sub, buildPush(pe, stage, initialSent, latest));
     if (r.ok) {
       sent++;
       for (const st of covered) {
-        await sql`insert into notifications (event_id, subscription_id, stage, status) values (${eventId}, ${sub.id}, ${st}, ${st === stage ? "sent" : "skipped"})
-                  on conflict (event_id, subscription_id, stage) do update set status = excluded.status, error = null, created_at = now()`;
+        await sql`insert into notifications (event_id, subscription_id, stage, status, headline) values (${eventId}, ${sub.id}, ${st}, ${st === stage ? "sent" : "skipped"}, ${st === stage ? alertText : null})
+                  on conflict (event_id, subscription_id, stage) do update set status = excluded.status, headline = excluded.headline, error = null, created_at = now()`;
       }
       await sql`update push_subscriptions set failure_count = 0, last_success_at = now() where id = ${sub.id}`;
     } else if (r.gone) {

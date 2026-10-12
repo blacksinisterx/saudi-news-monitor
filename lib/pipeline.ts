@@ -38,9 +38,46 @@ export function alertWorthy(imp: Importance, publishers: string[], hasOfficial: 
   return false;
 }
 export const ALERT_MAX_AGE_MS = 90 * 60_000; // alerts are for live news: the triggering report must be < 90 min old
-export const UPDATE_GAP_EVENT_MS = 60 * 60_000; // at most one "new report" update per event per hour
-export const UPDATE_GAP_DEVICE_MS = 20 * 60_000; // and at most one update per device every 20 min, across all events
-export const DUP_STORYLINE_SIM = 0.6; // new event this similar to one alerted in the last 2 h is the same storyline
+export const UPDATE_GAP_EVENT_MS = 10 * 60_000; // novelty is the real filter; these gaps only stop bursts
+export const UPDATE_GAP_DEVICE_MS = 5 * 60_000;
+export const NOVELTY_WINDOW_H = 3; // compare against what this device was already alerted about in the last 3 h
+
+/* ---- novelty: an alert must tell the user something the previous alerts did not ---- */
+const PLACE_RE = /\b(riyadh|jeddah|jiddah|mecca|makkah|medina|madinah|dammam|dhahran|khobar|jubail|abha|khamis mushait|jazan|jizan|najran|tabuk|neom|yanbu|taif|qatif|abqaiq|ras tanura|sanaa|aden|marib|hodeidah|red sea|hormuz|persian gulf|eastern province|kuwait|bahrain|qatar|dubai|abu dhabi|uae|oman|yemen|iran|iraq|israel|gaza|lebanon|syria)\b/g;
+const PLACE_ALIAS: Record<string, string> = { jiddah: "jeddah", makkah: "mecca", madinah: "medina", jizan: "jazan" };
+const TARGET_RE = /\b(airport|terminal|air ?base|refiner(?:y|ies)|embass(?:y|ies)|seaport|pipeline|desalination|power (?:plant|station)|stadium|hospital|oil (?:facility|field|site)|aramco|consulate|mosque|school|mall)s?\b/g;
+const DEVELOPMENTS: [string, RegExp][] = [
+  ["ceasefire", /\b(ceasefire|truce)\b/],
+  ["interception", /\bintercept\w*/],
+  ["retaliation", /\b(retaliat\w*|strikes? back|launch\w* (?:air ?)?strikes|counter-?attack)\b/],
+  ["evacuation", /\bevacuat\w+/],
+  ["closure", /\b(airspace|airports?)\b.{0,25}\b(clos\w+|shut\w*|suspend\w*)/],
+  ["emergency", /\bstate of emergency\b/],
+  ["sanctions", /\bsanctions?\b/],
+  ["casualties", /\b(kill\w*|dead|died|dies|casualt\w+|wounded|injur\w+|deaths?)\b/],
+];
+const NOISE = /\b(condemn\w*|reacts?|reactions?|analysis|opinion|explained|what we know|live updates?|live blog|timeline|editorial|commentary|photos?|video|watch|why)\b|^day \d+\b/i;
+
+export function facets(text: string): Set<string> {
+  const t = text.toLowerCase(), out = new Set<string>();
+  for (const m of t.matchAll(PLACE_RE)) out.add("p:" + (PLACE_ALIAS[m[1]] ?? m[1]));
+  for (const m of t.matchAll(TARGET_RE)) out.add("t:" + m[1].replace(/\s+/g, ""));
+  for (const [name, re] of DEVELOPMENTS) if (re.test(t)) out.add("d:" + name);
+  for (const m of t.matchAll(/\b(\d{1,4})\s+(?:people\s+)?(?:were\s+)?(?:killed|dead|dies|died|injured|wounded)|\b(?:kills?|killing|leaves?|left|toll (?:rises? )?(?:to|at))\s+(?:at least\s+)?(\d{1,4})\b/g)) {
+    const n = Number(m[1] ?? m[2]);
+    out.add("toll:" + (n < 10 ? "1-9" : n < 50 ? "10-49" : n < 200 ? "50-199" : "200+")); // a bigger toll bracket counts as news
+  }
+  return out;
+}
+
+/** True if `candidate` adds a new place, target, major development or casualty bracket compared with what was already alerted. */
+export function isNovel(candidate: string, recent: string[]): boolean {
+  if (NOISE.test(candidate)) return false; // videos, opinion, condemnations, "why..." pieces never alert
+  const similar = recent.filter((r) => similarity(candidate, r) >= 0.25);
+  if (!similar.length) return true; // a different story from anything alerted lately
+  const seen = new Set(similar.flatMap((r) => [...facets(r)]));
+  return [...facets(candidate)].some((f) => !seen.has(f));
+}
 
 export const publisherNames = (hosts: string[] | null) => [...new Set((hosts ?? []).map(publisherName))];
 
