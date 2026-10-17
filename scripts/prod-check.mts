@@ -25,7 +25,7 @@ check("duplicate coverage = silent", n[1], "none");
 check("official confirmation (SPA) = silent, read in app", n[2], "none");
 const fire = await post({ kind: "wire", title: "Fire at Aramco refinery in Ras Tanura after attack", snippet: "Smoke seen over the facility." });
 check("a different new incident = BREAKING push", fire.results?.[0]?.notified, "some");
-const more = await post({ kind: "other", title: "Second explosion hits Aramco refinery in Ras Tanura", snippet: "More details." });
+const more = await post({ kind: "other", title: "Aramco says fire at Ras Tanura refinery is under control", snippet: "Fire contained." });
 check("follow-up on the same incident = silent", more.results?.[0]?.notified, "none");
 await sql`delete from events where is_test`; await sql`delete from articles where source_id in (select id from sources where is_test)`;
 await sql.end();
