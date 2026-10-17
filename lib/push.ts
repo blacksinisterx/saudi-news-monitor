@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import { sql } from "./db";
-import { ALERT_MAX_AGE_MS, NOVELTY_WINDOW_H, UPDATE_GAP_DEVICE_MS, UPDATE_GAP_EVENT_MS, alertWorthy, buildPush, isNovel, publisherName, publisherNames, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
+import { ALERT_MAX_AGE_MS, NOVELTY_WINDOW_H, alertWorthy, buildPush, isNovel, publisherName, publisherNames, wantsEvent, type Prefs, type PushEvent, type Stage } from "./pipeline";
 import { log } from "./log";
 
 let ready = false;
@@ -61,8 +61,6 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
 
   const subs = await sql<Sub[]>`select id, endpoint, p256dh, auth, prefs from push_subscriptions`;
   const done = await sql`select subscription_id, stage, status, attempts, created_at from notifications where event_id = ${eventId}`;
-  // newest CRITICAL article of this event: if it arrived after a device's last alert, that device gets an UPDATE (queued, never dropped)
-  const crits = await sql`select id, title, publisher, fetched_at, published_at from articles where event_id = ${eventId} and importance = 'CRITICAL' order by fetched_at desc limit 8`;
   const worthy = alertWorthy(e.importance, e.source_names ?? [], e.has_official);
   // What each device was already alerted about lately: new alerts must add something to this (see isNovel).
   const recentAlerts = new Map<number, string[]>();
@@ -70,9 +68,6 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
       from notifications n join events e2 on e2.id = n.event_id
       where n.status = 'sent' and n.created_at > now() - make_interval(hours => ${NOVELTY_WINDOW_H}) and e2.is_test = ${e.is_test}`)
     recentAlerts.set(Number(r.sub), [...(recentAlerts.get(Number(r.sub)) ?? []), r.h]);
-  const lastUpdateByDevice = new Map<number, number>();
-  for (const r of await sql`select subscription_id, max(created_at) at from notifications where status = 'sent' and stage like 'update:%' and created_at > now() - interval '1 hour' group by 1`)
-    lastUpdateByDevice.set(Number(r.subscription_id), new Date(r.at).getTime());
   const pe: PushEvent = {
     id: e.id, headline: e.headline, summary: e.summary, importance: e.importance, verification: e.verification, location: e.location,
     confirmed_facts: e.confirmed_facts, claims: e.claims, sources: publisherNames(e.source_names),
@@ -87,28 +82,14 @@ export async function notifyEvent(eventId: number, opts: { ignoreAge?: boolean }
     const isDone = (st: Stage) => mine.some((d) => d.stage === st && (d.status !== "failed" || d.attempts >= 3 || now.getTime() - new Date(d.created_at).getTime() < 120_000));
     const initialSent = mine.some((d) => d.stage === "initial" && d.status === "sent");
     const pending = stagesNow.filter((s) => !isDone(s));
-    const lastSent = Math.max(0, ...mine.filter((d) => d.status === "sent").map((d) => new Date(d.created_at).getTime()));
-    let stage: Stage, covered: Stage[];
-    let alertText = e.headline as string;
-    let latest: { title: string; source: string } | undefined;
-    const recent = recentAlerts.get(Number(sub.id)) ?? [];
-    if (pending.length) {
-      if (!initialSent && !isNovel(e.headline, recent)) continue; // same storyline, nothing new: stay quiet
-      // If the first message is going out now, it already reflects the latest verification: mark later stages as skipped.
-      stage = initialSent ? pending[pending.length - 1] : "initial";
-      covered = initialSent ? [stage] : pending;
-    } else if (initialSent && now.getTime() - lastSent >= UPDATE_GAP_EVENT_MS && now.getTime() - (lastUpdateByDevice.get(Number(sub.id)) ?? 0) >= UPDATE_GAP_DEVICE_MS) {
-      // Newest recent CRITICAL report that tells this device something new (new place/target/development/toll). Never repeats, never hides a new one behind noise.
-      const crit = crits.find((c) => new Date(c.fetched_at).getTime() > lastSent && !isDone(`update:${c.id}`)
-        && (opts.ignoreAge || e.is_test || now.getTime() - new Date(c.published_at).getTime() <= ALERT_MAX_AGE_MS) && isNovel(c.title, recent));
-      if (!crit) continue;
-      stage = `update:${crit.id}`;
-      covered = [stage];
-      alertText = crit.title;
-      latest = { title: crit.title, source: publisherName(crit.publisher) };
-    } else continue;
+    // Breaking only: once a device got the first alert for an event, follow-ups (new reports, confirmations) are read in the app.
+    if (initialSent || !pending.length) continue;
+    if (!isNovel(e.headline, recentAlerts.get(Number(sub.id)) ?? [])) continue; // same storyline as a recent alert: stay quiet
+    const stage: Stage = "initial";
+    const covered = pending; // the first message already reflects the latest verification: later stages are marked skipped
+    const alertText = e.headline as string;
 
-    const r = await send(sub, buildPush(pe, stage, initialSent, latest));
+    const r = await send(sub, buildPush(pe, stage, false));
     if (r.ok) {
       sent++;
       for (const st of covered) {
